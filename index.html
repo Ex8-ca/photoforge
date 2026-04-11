@@ -1,0 +1,1023 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>ideopic — AI Image Generator</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,typography"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet"/>
+<script>
+tailwind.config = {
+    darkMode: "class",
+    theme: {
+        extend: {
+            colors: {
+                primary: "#7c3aed",
+                "primary-hover": "#6d28d9",
+                surface: "#111827",
+                "surface-2": "#1f2937",
+                "surface-3": "#374151",
+                border: "#4b5563",
+            },
+            fontFamily: {
+                sans: ["Inter", "sans-serif"],
+            },
+        },
+    },
+};
+</script>
+<style>
+    body { font-family: 'Inter', sans-serif; }
+    .scrollbar-thin::-webkit-scrollbar { width: 6px; }
+    .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+    .scrollbar-thin::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 3px; }
+    .style-card { transition: all 0.2s; }
+    .style-card:hover { transform: translateY(-2px); }
+    .style-card.active { ring: 2px; outline: 2px solid #7c3aed; outline-offset: 2px; }
+    .img-preview { image-rendering: auto; }
+    @keyframes pulse-border {
+        0%, 100% { border-color: #7c3aed; }
+        50% { border-color: #a78bfa; }
+    }
+    .generating { animation: pulse-border 1.5s ease-in-out infinite; }
+    .aspect-btn.active { background: #7c3aed; color: white; }
+    .history-thumb { transition: transform 0.2s; cursor: pointer; }
+    .history-thumb:hover { transform: scale(1.05); }
+</style>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen">
+
+<!-- Header -->
+<header class="border-b border-gray-800 px-6 py-4">
+    <div class="flex items-center justify-between max-w-7xl mx-auto">
+        <div class="flex items-center gap-3">
+            <div class="w-9 h-9 rounded-lg bg-primary flex items-center justify-center">
+                <span class="material-icons-outlined text-white text-xl">auto_awesome</span>
+            </div>
+            <div>
+                <h1 class="text-lg font-bold text-white">ideopic</h1>
+                <p class="text-xs text-gray-500">AI Image Generator</p>
+            </div>
+        </div>
+        <div class="flex items-center gap-4">
+            <!-- Model Selector -->
+            <select id="modelSelect" onchange="onModelChange()" 
+                class="bg-surface-2 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-primary">
+                <option value="flux">FLUX (Local GPU)</option>
+                <option value="minimax">MiniMax (Cloud)</option>
+            </select>
+            <div id="serverStatus" class="flex items-center gap-2 text-sm">
+                <span class="w-2 h-2 rounded-full bg-gray-500"></span>
+                <span class="text-gray-500">Checking server...</span>
+            </div>
+        </div>
+    </div>
+</header>
+
+<!-- Main Layout -->
+<main class="max-w-7xl mx-auto px-6 py-6 flex gap-6" style="min-height: calc(100vh - 73px);">
+
+    <!-- Left Panel: Controls -->
+    <div class="w-[420px] flex-shrink-0 space-y-5 overflow-y-auto scrollbar-thin" style="max-height: calc(100vh - 120px);">
+
+        <!-- Prompt Section -->
+        <div class="bg-surface rounded-xl border border-gray-800 p-4">
+            <div class="flex items-center justify-between mb-3">
+                <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wide">Prompt</h2>
+                <button onclick="enhancePrompt()" class="text-xs text-primary hover:text-primary-hover flex items-center gap-1" title="Auto-enhance with photography keywords">
+                    <span class="material-icons-outlined text-sm">auto_fix_high</span>
+                    Enhance
+                </button>
+            </div>
+            <textarea id="promptInput" rows="4" placeholder="Describe the photo you want to generate..." 
+                class="w-full bg-surface-2 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-primary resize-none"></textarea>
+            
+            <div class="mt-2">
+                <div class="flex items-center justify-between mb-1">
+                    <span class="text-xs text-gray-500">Negative Prompt</span>
+                    <button onclick="toggleNegPrompt()" class="text-xs text-gray-500 hover:text-gray-400" id="negToggle">Show</button>
+                </div>
+                <textarea id="negPromptInput" rows="2" style="display:none"
+                    class="w-full bg-surface-2 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-primary resize-none"
+                    placeholder="What to exclude...">blurry, cartoon, CGI, illustration, oversaturated, low detail, deformed, artifacts, watermark, text</textarea>
+            </div>
+        </div>
+
+        <!-- Style Presets -->
+        <div class="bg-surface rounded-xl border border-gray-800 p-4">
+            <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wide mb-3">Style</h2>
+            <div class="grid grid-cols-3 gap-2" id="styleGrid">
+                <!-- Filled by JS -->
+            </div>
+        </div>
+
+        <!-- Photo Subject -->
+        <div class="bg-surface rounded-xl border border-gray-800 p-4">
+            <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wide mb-3">Subject</h2>
+            <div class="grid grid-cols-3 gap-2" id="subjectGrid">
+                <!-- Filled by JS -->
+            </div>
+        </div>
+
+        <!-- Resolution (FLUX only) -->
+        <div id="resolutionSection" class="bg-surface rounded-xl border border-gray-800 p-4">
+            <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wide mb-3">Resolution</h2>
+            <div class="flex gap-2 flex-wrap" id="aspectBtns">
+                <button onclick="setAspect('1:1',1024,1024)" class="aspect-btn active px-3 py-1.5 text-xs rounded-lg bg-surface-3 border border-gray-700 font-medium">1:1</button>
+                <button onclick="setAspect('4:3',1024,768)" class="aspect-btn px-3 py-1.5 text-xs rounded-lg bg-surface-3 border border-gray-700 font-medium">4:3</button>
+                <button onclick="setAspect('3:4',768,1024)" class="aspect-btn px-3 py-1.5 text-xs rounded-lg bg-surface-3 border border-gray-700 font-medium">3:4</button>
+                <button onclick="setAspect('16:9',1024,576)" class="aspect-btn px-3 py-1.5 text-xs rounded-lg bg-surface-3 border border-gray-700 font-medium">16:9</button>
+                <button onclick="setAspect('9:16',576,1024)" class="aspect-btn px-3 py-1.5 text-xs rounded-lg bg-surface-3 border border-gray-700 font-medium">9:16</button>
+                <button onclick="setAspect('3:2',1024,682)" class="aspect-btn px-3 py-1.5 text-xs rounded-lg bg-surface-3 border border-gray-700 font-medium">3:2</button>
+            </div>
+            <div class="flex gap-3 mt-3">
+                <div class="flex-1">
+                    <label class="text-xs text-gray-500">Width</label>
+                    <input type="number" id="widthInput" value="1024" min="256" max="2048" step="64"
+                        class="w-full bg-surface-2 border border-gray-700 rounded-lg px-2 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-primary">
+                </div>
+                <div class="flex-1">
+                    <label class="text-xs text-gray-500">Height</label>
+                    <input type="number" id="heightInput" value="1024" min="256" max="2048" step="64"
+                        class="w-full bg-surface-2 border border-gray-700 rounded-lg px-2 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-primary">
+                </div>
+            </div>
+        </div>
+
+        <!-- Generation Settings (FLUX only) -->
+        <div id="settingsSection" class="bg-surface rounded-xl border border-gray-800 p-4">
+            <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wide mb-3">Settings</h2>
+            
+            <div class="space-y-3">
+                <!-- Seed -->
+                <div class="flex items-center justify-between">
+                    <label class="text-xs text-gray-400">Seed</label>
+                    <div class="flex items-center gap-2">
+                        <input type="number" id="seedInput" value="-1" min="-1" 
+                            class="w-28 bg-surface-2 border border-gray-700 rounded-lg px-2 py-1 text-sm text-gray-200 text-right focus:outline-none focus:border-primary">
+                        <button onclick="randomSeed()" class="text-gray-400 hover:text-primary" title="Random seed">
+                            <span class="material-icons-outlined text-sm">casino</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Steps -->
+                <div>
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="text-xs text-gray-400">Steps</label>
+                        <span class="text-xs text-gray-500" id="stepsValue">28</span>
+                    </div>
+                    <input type="range" id="stepsSlider" min="4" max="50" value="28" 
+                        oninput="document.getElementById('stepsValue').textContent=this.value"
+                        class="w-full accent-primary">
+                </div>
+
+                <!-- CFG -->
+                <div>
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="text-xs text-gray-400">CFG Scale</label>
+                        <span class="text-xs text-gray-500" id="cfgValue">3.5</span>
+                    </div>
+                    <input type="range" id="cfgSlider" min="1" max="10" step="0.5" value="3.5" 
+                        oninput="document.getElementById('cfgValue').textContent=this.value"
+                        class="w-full accent-primary">
+                </div>
+
+                <!-- Sampler -->
+                <div class="flex items-center justify-between">
+                    <label class="text-xs text-gray-400">Sampler</label>
+                    <select id="samplerSelect" 
+                        class="bg-surface-2 border border-gray-700 rounded-lg px-2 py-1 text-sm text-gray-200 focus:outline-none focus:border-primary">
+                        <option value="dpmpp_2m_sde">DPM++ 2M SDE</option>
+                        <option value="euler">Euler</option>
+                        <option value="euler_ancestral">Euler Ancestral</option>
+                        <option value="dpmpp_2m">DPM++ 2M</option>
+                        <option value="dpmpp_2s_ancestral">DPM++ 2S Ancestral</option>
+                        <option value="dpmpp_sde">DPM++ SDE</option>
+                        <option value="heun">Heun</option>
+                        <option value="ddim">DDIM</option>
+                    </select>
+                </div>
+
+                <!-- Scheduler -->
+                <div class="flex items-center justify-between">
+                    <label class="text-xs text-gray-400">Scheduler</label>
+                    <select id="schedulerSelect"
+                        class="bg-surface-2 border border-gray-700 rounded-lg px-2 py-1 text-sm text-gray-200 focus:outline-none focus:border-primary">
+                        <option value="simple">Simple</option>
+                        <option value="normal">Normal</option>
+                        <option value="karras">Karras</option>
+                        <option value="exponential">Exponential</option>
+                        <option value="sgm_uniform">SGM Uniform</option>
+                    </select>
+                </div>
+
+                <!-- LoRA -->
+                <div class="flex items-center justify-between">
+                    <label class="text-xs text-gray-400 flex items-center gap-1">
+                        Realism LoRA
+                        <span class="material-icons-outlined text-xs cursor-help" title="flux-realism-lora.safetensors">help_outline</span>
+                    </label>
+                    <div class="flex items-center gap-2">
+                        <input type="range" id="loraSlider" min="0" max="2" step="0.1" value="0.8" 
+                            oninput="document.getElementById('loraValue').textContent=parseFloat(this.value).toFixed(1)"
+                            class="w-20 accent-primary">
+                        <span class="text-xs text-gray-500 w-6 text-right" id="loraValue">0.8</span>
+                    </div>
+                </div>
+
+                <!-- Batch -->
+                <div class="flex items-center justify-between">
+                    <label class="text-xs text-gray-400">Batch Size</label>
+                    <select id="batchSelect"
+                        class="bg-surface-2 border border-gray-700 rounded-lg px-2 py-1 text-sm text-gray-200 focus:outline-none focus:border-primary">
+                        <option value="1">1</option>
+                        <option value="2">2</option>
+                        <option value="4">4</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <!-- Generate Button -->
+        <button onclick="generate()" id="generateBtn"
+            class="w-full bg-primary hover:bg-primary-hover text-white font-semibold py-3.5 rounded-xl flex items-center justify-center gap-2 transition-all active:scale-[0.98] shadow-lg shadow-primary/20">
+            <span class="material-icons-outlined">auto_awesome</span>
+            Generate
+        </button>
+
+        <!-- Queue Info -->
+        <div id="queueInfo" class="hidden bg-surface rounded-xl border border-gray-800 p-4">
+            <div class="flex items-center justify-between">
+                <span class="text-sm text-gray-400">Queue</span>
+                <span class="text-sm text-gray-300" id="queueCount">0 remaining</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Right Panel: Preview & History -->
+    <div class="flex-1 flex flex-col gap-5 min-w-0">
+        
+        <!-- Main Preview -->
+        <div id="previewArea" class="flex-1 bg-surface rounded-xl border border-gray-800 flex items-center justify-center overflow-hidden relative" style="min-height: 500px;">
+            <!-- Empty state -->
+            <div id="emptyState" class="text-center">
+                <span class="material-icons-outlined text-6xl text-gray-700">image</span>
+                <p class="text-gray-600 mt-3 text-sm">Enter a prompt and click Generate</p>
+                <p id="modelSubtitle" class="text-gray-700 text-xs mt-1">FLUX.1-dev + Realism LoRA</p>
+            </div>
+            
+            <!-- Generating state -->
+            <div id="generatingState" class="hidden text-center">
+                <div class="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto"></div>
+                <p class="text-gray-400 mt-4 text-sm" id="genStatusText">Generating...</p>
+                <p class="text-gray-600 text-xs mt-1" id="genProgressText"></p>
+            </div>
+
+            <!-- Image display -->
+            <img id="previewImage" class="hidden max-w-full max-h-full img-preview object-contain" alt="Generated image"/>
+        </div>
+
+        <!-- Image Actions Bar -->
+        <div id="imageActions" class="hidden flex gap-2">
+            <button onclick="downloadImage()" class="flex items-center gap-1.5 px-4 py-2 bg-surface-2 hover:bg-surface-3 border border-gray-700 rounded-lg text-sm transition-colors">
+                <span class="material-icons-outlined text-sm">download</span>
+                Download
+            </button>
+            <button onclick="reuseSeed()" class="flex items-center gap-1.5 px-4 py-2 bg-surface-2 hover:bg-surface-3 border border-gray-700 rounded-lg text-sm transition-colors">
+                <span class="material-icons-outlined text-sm">casino</span>
+                Reuse Seed
+            </button>
+            <button onclick="upscale()" class="flex items-center gap-1.5 px-4 py-2 bg-surface-2 hover:bg-surface-3 border border-gray-700 rounded-lg text-sm transition-colors">
+                <span class="material-icons-outlined text-sm">zoom_in</span>
+                Upscale
+            </button>
+            <div class="flex-1"></div>
+            <span class="text-xs text-gray-600 self-center" id="genMeta"></span>
+        </div>
+
+        <!-- History Strip -->
+        <div class="bg-surface rounded-xl border border-gray-800 p-4">
+            <div class="flex items-center justify-between mb-3">
+                <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wide flex items-center gap-2">
+                    Cloud History
+                    <span id="historyLoading" class="hidden"><div class="w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin"></div></span>
+                </h2>
+                <button onclick="loadCloudHistory()" class="text-xs text-gray-500 hover:text-gray-400 flex items-center gap-1">
+                    <span class="material-icons-outlined text-xs">refresh</span>
+                    Refresh
+                </button>
+            </div>
+            <div id="historyStrip" class="flex gap-3 overflow-x-auto scrollbar-thin pb-1">
+                <div class="text-xs text-gray-600 py-6 text-center w-full">Loading cloud history...</div>
+            </div>
+        </div>
+    </div>
+</main>
+
+<script>
+// ============================================================
+// Config
+// ============================================================
+const COMFYUI_URL = '/api';  // Proxied through same-origin server
+
+// Style presets with prompt prefixes
+const STYLES = [
+    { id: 'photorealistic', icon: 'photo_camera', label: 'Photo Real', prefix: 'professional photo of a', active: true },
+    { id: 'cinematic', icon: 'movie', label: 'Cinematic', prefix: 'cinematic shot of a, dramatic lighting, film grain, anamorphic' },
+    { id: 'portrait', icon: 'face', label: 'Portrait', prefix: 'studio portrait photo of a, soft lighting, shallow DOF, 85mm' },
+    { id: 'fashion', icon: 'checkroom', label: 'Fashion', prefix: 'high fashion editorial photo of a, vogue style, dramatic pose' },
+    { id: 'product', icon: 'shopping_bag', label: 'Product', prefix: 'professional product photography of a, clean white background, studio lighting' },
+    { id: 'architectural', icon: 'apartment', label: 'Architecture', prefix: 'architectural photography of a, wide angle, golden hour, professional' },
+    { id: 'food', icon: 'restaurant', label: 'Food', prefix: 'food photography of a, overhead shot, styled plating, natural light' },
+    { id: 'landscape', icon: 'landscape', label: 'Landscape', prefix: 'landscape photography of a, golden hour, dramatic sky, wide angle' },
+    { id: 'street', icon: 'streetview', label: 'Street', prefix: 'street photography of a, urban, candid, natural lighting, 35mm' },
+];
+
+const SUBJECTS = [
+    { id: 'person', icon: 'person', label: 'Person' },
+    { id: 'woman', icon: 'face_3', label: 'Woman' },
+    { id: 'man', icon: 'face_6', label: 'Man' },
+    { id: 'couple', icon: 'diversity_1', label: 'Couple' },
+    { id: 'animal', icon: 'pets', label: 'Animal' },
+    { id: 'object', icon: 'category', label: 'Object' },
+    { id: 'scene', icon: 'scene', label: 'Scene' },
+    { id: 'nature', icon: 'forest', label: 'Nature' },
+    { id: 'abstract', icon: 'blur_on', label: 'Abstract' },
+];
+
+// Enhancement suffixes per style
+const ENHANCE_MAP = {
+    'photorealistic': ', natural lighting, realistic skin texture, sharp focus, shallow depth of field, 35mm, bokeh, high detail, 8k',
+    'cinematic': ', volumetric lighting, lens flare, color grading, film look, 8k',
+    'portrait': ', Rembrandt lighting, catchlights, smooth skin, professional, 8k',
+    'fashion': ', editorial, luxury, high-end, magazine quality, 8k',
+    'product': ', commercial photography, macro detail, reflection, premium feel',
+    'architectural': ', symmetry, leading lines, HDR, professional, 8k',
+    'food': ', shallow DOF, garnish detail, warm tones, appetizing',
+    'landscape': ', rule of thirds, vibrant colors, long exposure, 8k',
+    'street': ', decisive moment, contrast, documentary style, 8k',
+};
+
+// State
+let currentStyle = STYLES[0];
+let currentSubject = null;
+let currentPromptId = null;
+let lastImageUrl = null;
+let lastSeed = null;
+let history = [];
+let cloudHistory = [];
+let currentModel = 'flux';
+
+function onModelChange() {
+    currentModel = document.getElementById('modelSelect').value;
+    const isFlux = currentModel === 'flux';
+    
+    // Toggle FLUX-specific sections
+    const negPromptSection = document.querySelector('#promptInput').closest('.bg-surface').querySelector('[id*="negPrompt"]')?.parentElement;
+    const negBtn = document.getElementById('negToggle');
+    if (negBtn) negBtn.parentElement.parentElement.style.display = isFlux ? '' : 'none';
+    
+    document.getElementById('resolutionSection').style.display = isFlux ? '' : 'none';
+    document.getElementById('settingsSection').style.display = isFlux ? '' : 'none';
+    
+    // Update empty state subtitle
+    document.getElementById('modelSubtitle').textContent = isFlux ? 'FLUX.1-dev + Realism LoRA' : 'MiniMax image-01';
+}
+
+// ============================================================
+// Init
+// ============================================================
+window.addEventListener('DOMContentLoaded', () => {
+    renderStyles();
+    renderSubjects();
+    checkServer();
+    loadCloudHistory();
+});
+
+function renderStyles() {
+    const grid = document.getElementById('styleGrid');
+    grid.innerHTML = STYLES.map(s => `
+        <button onclick="selectStyle('${s.id}')" 
+            class="style-card flex flex-col items-center gap-1.5 p-3 rounded-lg border ${s.active ? 'border-primary bg-primary/10' : 'border-gray-700 bg-surface-2 hover:border-gray-600'}" 
+            data-style="${s.id}">
+            <span class="material-icons-outlined ${s.active ? 'text-primary' : 'text-gray-400'}">${s.icon}</span>
+            <span class="text-xs ${s.active ? 'text-primary font-medium' : 'text-gray-400'}">${s.label}</span>
+        </button>
+    `).join('');
+}
+
+function renderSubjects() {
+    const grid = document.getElementById('subjectGrid');
+    grid.innerHTML = SUBJECTS.map(s => `
+        <button onclick="selectSubject('${s.id}')" 
+            class="style-card flex flex-col items-center gap-1.5 p-2.5 rounded-lg border border-gray-700 bg-surface-2 hover:border-gray-600" 
+            data-subject="${s.id}">
+            <span class="material-icons-outlined text-gray-400 text-lg">${s.icon}</span>
+            <span class="text-xs text-gray-400">${s.label}</span>
+        </button>
+    `).join('');
+}
+
+function selectStyle(id) {
+    currentStyle = STYLES.find(s => s.id === id);
+    STYLES.forEach(s => s.active = s.id === id);
+    renderStyles();
+}
+
+function selectSubject(id) {
+    currentSubject = SUBJECTS.find(s => s.id === id);
+    document.querySelectorAll('[data-subject]').forEach(el => {
+        const isActive = el.dataset.subject === id;
+        el.className = `style-card flex flex-col items-center gap-1.5 p-2.5 rounded-lg border ${isActive ? 'border-primary bg-primary/10' : 'border-gray-700 bg-surface-2 hover:border-gray-600'}`;
+        el.querySelector('span:first-child').className = `material-icons-outlined text-lg ${isActive ? 'text-primary' : 'text-gray-400'}`;
+        el.querySelector('span:last-child').className = `text-xs ${isActive ? 'text-primary font-medium' : 'text-gray-400'}`;
+    });
+}
+
+function setAspect(label, w, h) {
+    document.getElementById('widthInput').value = w;
+    document.getElementById('heightInput').value = h;
+    document.querySelectorAll('.aspect-btn').forEach(btn => btn.classList.remove('active'));
+    event.target.classList.add('active');
+}
+
+function toggleNegPrompt() {
+    const el = document.getElementById('negPromptInput');
+    const btn = document.getElementById('negToggle');
+    if (el.style.display === 'none') {
+        el.style.display = 'block';
+        btn.textContent = 'Hide';
+    } else {
+        el.style.display = 'none';
+        btn.textContent = 'Show';
+    }
+}
+
+function randomSeed() {
+    document.getElementById('seedInput').value = Math.floor(Math.random() * 2147483647);
+}
+
+function enhancePrompt() {
+    const input = document.getElementById('promptInput');
+    const text = input.value.trim();
+    if (!text) return;
+    const suffix = ENHANCE_MAP[currentStyle.id] || ENHANCE_MAP['photorealistic'];
+    if (!text.includes('8k') && !text.includes('professional')) {
+        input.value = text + suffix;
+    }
+}
+
+// ============================================================
+// Server Check
+// ============================================================
+async function checkServer() {
+    const statusEl = document.getElementById('serverStatus');
+    try {
+        const resp = await fetch(`${COMFYUI_URL}/system_stats`);
+        if (resp.ok) {
+            const data = await resp.json();
+            const gpu = data.devices?.[0];
+            const vramFree = gpu ? (gpu.vram_free / 1024 / 1024 / 1024).toFixed(1) : '?';
+            const vramTotal = gpu ? (gpu.vram_total / 1024 / 1024 / 1024).toFixed(1) : '?';
+            statusEl.innerHTML = `
+                <span class="w-2 h-2 rounded-full bg-green-500"></span>
+                <span class="text-green-400 text-sm">${gpu?.name || 'Connected'} — ${vramFree}GB / ${vramTotal}GB</span>
+            `;
+        }
+    } catch(e) {
+        statusEl.innerHTML = `
+            <span class="w-2 h-2 rounded-full bg-red-500"></span>
+            <span class="text-red-400 text-sm">Server offline</span>
+        `;
+    }
+}
+
+// ============================================================
+// Workflow Builder
+// ============================================================
+function buildWorkflow() {
+    const prompt = document.getElementById('promptInput').value.trim();
+    if (!prompt) return null;
+
+    const negPrompt = document.getElementById('negPromptInput').value.trim() || '';
+    const width = parseInt(document.getElementById('widthInput').value) || 1024;
+    const height = parseInt(document.getElementById('heightInput').value) || 1024;
+    const seedVal = parseInt(document.getElementById('seedInput').value);
+    const seed = seedVal === -1 ? Math.floor(Math.random() * 2147483647) : seedVal;
+    const steps = parseInt(document.getElementById('stepsSlider').value);
+    const cfg = parseFloat(document.getElementById('cfgSlider').value);
+    const sampler = document.getElementById('samplerSelect').value;
+    const scheduler = document.getElementById('schedulerSelect').value;
+    const loraStrength = parseFloat(document.getElementById('loraSlider').value);
+    const batchSize = parseInt(document.getElementById('batchSelect').value);
+
+    lastSeed = seed;
+
+    // Apply style prefix to prompt if not already present
+    let fullPrompt = prompt;
+    if (currentStyle.prefix && !prompt.toLowerCase().startsWith('photo') && !prompt.toLowerCase().startsWith('cinematic') && !prompt.toLowerCase().startsWith('professional')) {
+        fullPrompt = currentStyle.prefix + ' ' + prompt;
+    }
+
+    const workflow = {};
+
+    // Node 1: UNETLoader (FLUX) — using dev for quality
+    workflow["1"] = {
+        "class_type": "UNETLoader",
+        "inputs": {
+            "unet_name": "flux1-dev-bnb-nf4.safetensors",
+            "weight_dtype": "default"
+        }
+    };
+
+    // Node 2: DualCLIPLoader
+    workflow["2"] = {
+        "class_type": "DualCLIPLoader",
+        "inputs": {
+            "clip_name1": "clip_l.safetensors",
+            "clip_name2": "t5xxl_fp8_e4m3fn.safetensors",
+            "type": "flux"
+        }
+    };
+
+    // Node 3: VAELoader
+    workflow["3"] = {
+        "class_type": "VAELoader",
+        "inputs": {
+            "vae_name": "ae.safetensors"
+        }
+    };
+
+    // Node 4: ModelSamplingFlux
+    workflow["4"] = {
+        "class_type": "ModelSamplingFlux",
+        "inputs": {
+            "model": loraStrength > 0 ? ["11", 0] : ["1", 0],
+            "width": width,
+            "height": height,
+            "base_shift": 0.5,
+            "max_shift": 1.15
+        }
+    };
+
+    // Node 5: CLIPTextEncodeFlux (positive)
+    workflow["5"] = {
+        "class_type": "CLIPTextEncodeFlux",
+        "inputs": {
+            "clip": loraStrength > 0 ? ["11", 1] : ["2", 0],
+            "clip_l": fullPrompt,
+            "t5xxl": fullPrompt,
+            "guidance": cfg
+        }
+    };
+
+    // Node 6: CLIPTextEncodeFlux (negative)
+    workflow["6"] = {
+        "class_type": "CLIPTextEncodeFlux",
+        "inputs": {
+            "clip": loraStrength > 0 ? ["11", 1] : ["2", 0],
+            "clip_l": negPrompt,
+            "t5xxl": negPrompt,
+            "guidance": 0.0
+        }
+    };
+
+    // Node 7: EmptyFlux2LatentImage
+    workflow["7"] = {
+        "class_type": "EmptyFlux2LatentImage",
+        "inputs": {
+            "width": width,
+            "height": height,
+            "batch_size": batchSize
+        }
+    };
+
+    // Node 8: KSampler
+    workflow["8"] = {
+        "class_type": "KSampler",
+        "inputs": {
+            "model": ["4", 0],
+            "positive": ["5", 0],
+            "negative": ["6", 0],
+            "latent_image": ["7", 0],
+            "seed": seed,
+            "steps": steps,
+            "cfg": cfg,
+            "sampler_name": sampler,
+            "scheduler": scheduler,
+            "denoise": 1.0
+        }
+    };
+
+    // Node 9: VAEDecode
+    workflow["9"] = {
+        "class_type": "VAEDecode",
+        "inputs": {
+            "samples": ["8", 0],
+            "vae": ["3", 0]
+        }
+    };
+
+    // Node 10: SaveImage
+    workflow["10"] = {
+        "class_type": "SaveImage",
+        "inputs": {
+            "images": ["9", 0],
+            "filename_prefix": "ideopic"
+        }
+    };
+
+    // Node 11: LoRA (only if strength > 0)
+    if (loraStrength > 0) {
+        workflow["11"] = {
+            "class_type": "LoraLoader",
+            "inputs": {
+                "model": ["1", 0],
+                "clip": ["2", 0],
+                "lora_name": "flux-realism-lora.safetensors",
+                "strength_model": loraStrength,
+                "strength_clip": loraStrength
+            }
+        };
+    }
+
+    return workflow;
+}
+
+// ============================================================
+// Generation
+// ============================================================
+async function generate() {
+    if (currentModel === 'minimax') {
+        await generateMiniMax();
+    } else {
+        await generateFlux();
+    }
+}
+
+async function generateFlux() {
+    const workflow = buildWorkflow();
+    if (!workflow) {
+        alert('Please enter a prompt');
+        return;
+    }
+
+    const btn = document.getElementById('generateBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="material-icons-outlined animate-spin">progress_activity</span> Generating...';
+    
+    showState('generating');
+
+    try {
+        const resp = await fetch(`${COMFYUI_URL}/prompt`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt: workflow })
+        });
+
+        if (!resp.ok) {
+            const err = await resp.json();
+            throw new Error(err.error?.message || JSON.stringify(err.node_errors) || 'Generation failed');
+        }
+
+        const result = await resp.json();
+        currentPromptId = result.prompt_id;
+        
+        document.getElementById('genStatusText').textContent = 'Queued...';
+        pollForResult(currentPromptId);
+    } catch(e) {
+        console.error('Generation error:', e);
+        showState('empty');
+        alert('Error: ' + e.message);
+        resetBtn();
+    }
+}
+
+async function generateMiniMax() {
+    const prompt = document.getElementById('promptInput').value.trim();
+    if (!prompt) {
+        alert('Please enter a prompt');
+        return;
+    }
+
+    const btn = document.getElementById('generateBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="material-icons-outlined animate-spin">progress_activity</span> Generating...';
+    
+    showState('generating');
+    document.getElementById('genStatusText').textContent = 'Generating with MiniMax...';
+
+    try {
+        // Map current aspect ratio to MiniMax format
+        const w = parseInt(document.getElementById('widthInput').value) || 1024;
+        const h = parseInt(document.getElementById('heightInput').value) || 1024;
+        const aspectRatio = `${w}:${h}`;
+
+        const resp = await fetch('/minimax/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt, aspect_ratio: aspectRatio })
+        });
+
+        if (!resp.ok) {
+            let errMsg = 'Generation failed';
+            try {
+                const err = await resp.json();
+                errMsg = err.error || errMsg;
+            } catch(e) {}
+            throw new Error(errMsg);
+        }
+
+        // MiniMax returns raw JPEG bytes
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        
+        displayImageMiniMax(url);
+    } catch(e) {
+        console.error('MiniMax generation error:', e);
+        showState('empty');
+        alert('Error: ' + e.message);
+        resetBtn();
+    }
+}
+
+function displayImageMiniMax(url) {
+    lastImageUrl = url;
+    const img = document.getElementById('previewImage');
+    img.onload = () => {
+        showState('image');
+        resetBtn();
+        document.getElementById('genMeta').textContent = `MiniMax | ${document.getElementById('widthInput').value}x${document.getElementById('heightInput').value}`;
+    };
+    img.onerror = () => {
+        showState('empty');
+        alert('Failed to load generated image');
+        resetBtn();
+    };
+    img.src = url;
+    
+    // Upload to Cloudinary in background
+    uploadToCloudinaryDirect(url);
+}
+
+async function uploadToCloudinaryDirect(imageUrl) {
+    try {
+        // Fetch the blob and convert to base64 for upload
+        const resp = await fetch(imageUrl);
+        const blob = await resp.blob();
+        const reader = new FileReader();
+        reader.onloadend = async () => {
+            const base64 = reader.result.split(',')[1];
+            // Upload via server proxy
+            const uploadResp = await fetch('/cloudinary/upload', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: imageUrl, base64: base64 })
+            });
+            const data = await uploadResp.json();
+            if (data.success) {
+                cloudHistory.unshift({
+                    url: data.url,
+                    public_id: data.public_id,
+                    width: data.width,
+                    height: data.height
+                });
+                renderCloudHistory();
+            }
+        };
+        reader.readAsDataURL(blob);
+    } catch(e) {
+        console.warn('Cloudinary upload skipped:', e);
+    }
+}
+
+async function pollForResult(promptId) {
+    const maxWait = 300; // 5 min timeout
+    let waited = 0;
+    
+    const poll = async () => {
+        try {
+            const resp = await fetch(`${COMFYUI_URL}/history/${promptId}`);
+            const history = await resp.json();
+            
+            if (history[promptId]) {
+                const outputs = history[promptId].outputs || {};
+                
+                // Check for images in any output node
+                for (const [nodeId, nodeOutput] of Object.entries(outputs)) {
+                    if (nodeOutput.images && nodeOutput.images.length > 0) {
+                        for (const img of nodeOutput.images) {
+                            const imgUrl = `${COMFYUI_URL}/view?filename=${encodeURIComponent(img.filename)}&subfolder=${encodeURIComponent(img.subfolder || '')}&type=${encodeURIComponent(img.type || 'output')}`;
+                            displayImage(imgUrl);
+                            addToHistory(imgUrl);
+                        }
+                        return;
+                    }
+                }
+
+                // Check for errors
+                if (history[promptId].status?.status_str === 'error') {
+                    throw new Error('Generation failed on server');
+                }
+            }
+
+            waited++;
+            if (waited > maxWait) {
+                throw new Error('Generation timed out');
+            }
+
+            document.getElementById('genStatusText').textContent = `Generating... (${waited}s)`;
+            setTimeout(poll, 1000);
+        } catch(e) {
+            if (e.message.includes('timed out') || e.message.includes('failed')) {
+                showState('empty');
+                alert('Error: ' + e.message);
+                resetBtn();
+            } else {
+                // Network error, retry
+                waited++;
+                if (waited > maxWait) {
+                    showState('empty');
+                    alert('Connection lost');
+                    resetBtn();
+                } else {
+                    setTimeout(poll, 2000);
+                }
+            }
+        }
+    };
+
+    setTimeout(poll, 1000);
+}
+
+function displayImage(url) {
+    lastImageUrl = url;
+    const img = document.getElementById('previewImage');
+    img.onload = () => {
+        showState('image');
+        resetBtn();
+        document.getElementById('genMeta').textContent = `Seed: ${lastSeed} | ${document.getElementById('stepsSlider').value} steps | ${document.getElementById('samplerSelect').value}`;
+    };
+    img.onerror = () => {
+        showState('empty');
+        alert('Failed to load generated image');
+        resetBtn();
+    };
+    img.src = url;
+}
+
+function addToHistory(url) {
+    history.unshift({ url, seed: lastSeed, time: new Date().toLocaleTimeString() });
+    if (history.length > 20) history.pop();
+    renderHistory();
+    // Upload to Cloudinary in background
+    uploadToCloudinary(url);
+}
+
+async function uploadToCloudinary(comfyuiUrl) {
+    try {
+        const resp = await fetch('/cloudinary/upload', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: comfyuiUrl })
+        });
+        const data = await resp.json();
+        if (data.success) {
+            // Add to cloud history at the front and re-render
+            cloudHistory.unshift({
+                url: data.url,
+                public_id: data.public_id,
+                width: data.width,
+                height: data.height
+            });
+            renderCloudHistory();
+        }
+    } catch(e) {
+        console.warn('Cloudinary upload skipped:', e);
+    }
+}
+
+async function loadCloudHistory() {
+    const loader = document.getElementById('historyLoading');
+    if (loader) loader.classList.remove('hidden');
+    try {
+        const resp = await fetch('/cloudinary/history');
+        const data = await resp.json();
+        cloudHistory = data.images || [];
+        renderCloudHistory();
+    } catch(e) {
+        console.warn('Failed to load cloud history:', e);
+        const strip = document.getElementById('historyStrip');
+        strip.innerHTML = '<div class="text-xs text-gray-600 py-6 text-center w-full">Could not load cloud history</div>';
+    }
+    if (loader) loader.classList.add('hidden');
+}
+
+function renderCloudHistory() {
+    const strip = document.getElementById('historyStrip');
+    if (!cloudHistory || cloudHistory.length === 0) {
+        strip.innerHTML = '<div class="text-xs text-gray-600 py-6 text-center w-full">No images in cloud history yet</div>';
+        return;
+    }
+    strip.innerHTML = cloudHistory.map((img, i) => {
+        // Use Cloudinary thumbnail transform for the strip
+        const thumbUrl = img.url.replace('/upload/', '/upload/w_160,h_160,c_fill/');
+        return `
+        <div class="history-thumb flex-shrink-0 w-20 h-20 rounded-lg overflow-hidden border-2 border-transparent hover:border-primary relative group"
+             onclick="showCloudImage(${i})">
+            <img src="${thumbUrl}" class="w-full h-full object-cover" alt="History ${i}" loading="lazy"/>
+            <div class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                <span class="material-icons-outlined text-white text-sm">cloud</span>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function showCloudImage(index) {
+    const img = cloudHistory[index];
+    if (img) {
+        lastImageUrl = img.url;
+        const preview = document.getElementById('previewImage');
+        preview.src = img.url;
+        showState('image');
+        document.getElementById('genMeta').textContent = `${img.width}x${img.height} | Cloud`;
+    }
+}
+
+function renderHistory() {
+    const strip = document.getElementById('historyStrip');
+    if (history.length === 0) {
+        strip.innerHTML = '<div class="text-xs text-gray-600 py-6 text-center w-full">Generated images will appear here</div>';
+        return;
+    }
+    strip.innerHTML = history.map((h, i) => `
+        <div class="history-thumb flex-shrink-0 w-20 h-20 rounded-lg overflow-hidden border-2 border-transparent hover:border-primary relative group" onclick="showHistoryImage(${i})">
+            <img src="${h.url}" class="w-full h-full object-cover" alt="History ${i}"/>
+            <div class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                <span class="text-xs text-white">${h.seed}</span>
+            </div>
+        </div>
+    `).join('');
+}
+
+function showHistoryImage(index) {
+    const h = history[index];
+    if (h) {
+        lastImageUrl = h.url;
+        const img = document.getElementById('previewImage');
+        img.src = h.url;
+        showState('image');
+    }
+}
+
+// ============================================================
+// UI State Management
+// ============================================================
+function showState(state) {
+    document.getElementById('emptyState').classList.toggle('hidden', state !== 'empty');
+    document.getElementById('generatingState').classList.toggle('hidden', state !== 'generating');
+    document.getElementById('previewImage').classList.toggle('hidden', state !== 'image');
+    document.getElementById('imageActions').classList.toggle('hidden', state !== 'image');
+    
+    const preview = document.getElementById('previewArea');
+    preview.classList.toggle('generating', state === 'generating');
+}
+
+function resetBtn() {
+    const btn = document.getElementById('generateBtn');
+    btn.disabled = false;
+    btn.innerHTML = '<span class="material-icons-outlined">auto_awesome</span> Generate';
+}
+
+// ============================================================
+// Actions
+// ============================================================
+function downloadImage() {
+    if (!lastImageUrl) return;
+    const a = document.createElement('a');
+    a.href = lastImageUrl;
+    a.download = `ideopic_${lastSeed}.png`;
+    a.click();
+}
+
+function reuseSeed() {
+    if (lastSeed) {
+        document.getElementById('seedInput').value = lastSeed;
+    }
+}
+
+function upscale() {
+    // TODO: Implement upscale workflow
+    alert('Upscale feature coming soon — will use a 2x upscale model');
+}
+
+function clearHistory() {
+    history = [];
+    renderHistory();
+}
+</script>
+
+</body>
+</html>
