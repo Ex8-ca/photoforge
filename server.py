@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ideopic frontend + ComfyUI reverse proxy + Cloudinary history on a single port."""
+"""photoforge frontend + ComfyUI reverse proxy + Cloudinary history on a single port."""
 import http.server
 import urllib.request
 import urllib.error
@@ -39,7 +39,8 @@ def _load_cloudinary():
                 if line.startswith("#") or not line:
                     continue
                 key, val = line.split("=", 1)
-                os.environ[f"CLOUDINARY_{key.upper()}"] = val.strip()
+                # Keys already have CLOUDINARY_ prefix in the .env file
+                os.environ[key.strip().upper()] = val.strip()
     cloudinary.config(
         cloud_name=os.environ.get("CLOUDINARY_CLOUD_NAME", ""),
         api_key=os.environ.get("CLOUDINARY_API_KEY", ""),
@@ -151,9 +152,10 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
                     img_data = img_resp.read()
 
             # Upload to Cloudinary via SDK
-            result = cloudinary.uploader.upload(
+            import cloudinary.uploader as uploader
+            result = uploader.upload(
                 io.BytesIO(img_data),
-                folder="ideopic",
+                folder="photoforge",
                 resource_type="image",
             )
 
@@ -176,9 +178,10 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
     # ================================================================
     def serve_cloudinary_history(self):
         try:
-            result = cloudinary.api.resources(
+            import cloudinary.api as api
+            result = api.resources(
                 type="upload",
-                prefix="ideopic/",
+                prefix="photoforge/",
                 max_results=30,
                 sort_by=[("created_at", "desc")],
             )
@@ -237,9 +240,10 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
             with urllib.request.urlopen(req, timeout=120) as resp:
                 result = json.loads(resp.read())
 
-            images = result.get("data", {}).get("image_base64", [])
+            data = result.get("data") or {}
+            images = data.get("image_base64", [])
             if not images:
-                self.send_json_error(500, "No images returned from MiniMax")
+                self.send_json_error(500, f"No images returned from MiniMax: {result.get('base_resp', 'unknown response')}")
                 return
 
             # Decode first image and return as data URL
@@ -268,8 +272,9 @@ class ProxyHandler(http.server.SimpleHTTPRequestHandler):
     # ================================================================
     def handle_cloudinary_delete(self, public_id):
         try:
+            import cloudinary.uploader as uploader
             decoded_id = urllib.parse.unquote(public_id)
-            result = cloudinary.uploader.destroy(decoded_id)
+            result = uploader.destroy(decoded_id)
             self.send_json_ok({"success": result.get("result") == "ok"})
         except Exception as e:
             self.send_json_error(500, str(e))
@@ -308,7 +313,7 @@ if __name__ == "__main__":
     import urllib.parse
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8888
     server = http.server.HTTPServer(("0.0.0.0", port), ProxyHandler)
-    print(f"ideopic running at http://192.168.1.3:{port}")
+    print(f"photoforge running at http://192.168.1.3:{port}")
     print(f"Proxying /api/* -> {COMFYUI}")
     print(f"MiniMax: {'configured' if MINIMAX_API_KEY else 'NOT configured'}")
     print(f"Cloudinary uploads -> dol2t3l5x")

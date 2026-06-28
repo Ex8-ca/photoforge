@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>ideopic — AI Image Generator</title>
+<title>photoforge — AI Image Generator</title>
 <script src="https://cdn.tailwindcss.com?plugins=forms,typography"></script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet"/>
@@ -56,7 +56,7 @@ tailwind.config = {
                 <span class="material-icons-outlined text-white text-xl">auto_awesome</span>
             </div>
             <div>
-                <h1 class="text-lg font-bold text-white">ideopic</h1>
+                <h1 class="text-lg font-bold text-white">photoforge</h1>
                 <p class="text-xs text-gray-500">AI Image Generator</p>
             </div>
         </div>
@@ -122,7 +122,7 @@ tailwind.config = {
 
         <!-- Resolution (FLUX only) -->
         <div id="resolutionSection" class="bg-surface rounded-xl border border-gray-800 p-4">
-            <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wide mb-3">Resolution</h2>
+            <h2 class="text-sm font-semibold text-gray-300 uppercase tracking-wide mb-3">Aspect Ratio</h2>
             <div class="flex gap-2 flex-wrap" id="aspectBtns">
                 <button onclick="setAspect('1:1',1024,1024)" class="aspect-btn active px-3 py-1.5 text-xs rounded-lg bg-surface-3 border border-gray-700 font-medium">1:1</button>
                 <button onclick="setAspect('4:3',1024,768)" class="aspect-btn px-3 py-1.5 text-xs rounded-lg bg-surface-3 border border-gray-700 font-medium">4:3</button>
@@ -130,8 +130,10 @@ tailwind.config = {
                 <button onclick="setAspect('16:9',1024,576)" class="aspect-btn px-3 py-1.5 text-xs rounded-lg bg-surface-3 border border-gray-700 font-medium">16:9</button>
                 <button onclick="setAspect('9:16',576,1024)" class="aspect-btn px-3 py-1.5 text-xs rounded-lg bg-surface-3 border border-gray-700 font-medium">9:16</button>
                 <button onclick="setAspect('3:2',1024,682)" class="aspect-btn px-3 py-1.5 text-xs rounded-lg bg-surface-3 border border-gray-700 font-medium">3:2</button>
+                <button onclick="setAspect('21:9',1024,439)" class="aspect-btn px-3 py-1.5 text-xs rounded-lg bg-surface-3 border border-gray-700 font-medium">21:9</button>
+                <button onclick="setAspect('9:21',439,1024)" class="aspect-btn px-3 py-1.5 text-xs rounded-lg bg-surface-3 border border-gray-700 font-medium">9:21</button>
             </div>
-            <div class="flex gap-3 mt-3">
+            <div class="flex gap-3 mt-3" id="customSizeRow">
                 <div class="flex-1">
                     <label class="text-xs text-gray-500">Width</label>
                     <input type="number" id="widthInput" value="1024" min="256" max="2048" step="64"
@@ -369,6 +371,7 @@ let lastSeed = null;
 let history = [];
 let cloudHistory = [];
 let currentModel = 'flux';
+let currentAspect = '1:1';
 
 function onModelChange() {
     currentModel = document.getElementById('modelSelect').value;
@@ -379,7 +382,8 @@ function onModelChange() {
     const negBtn = document.getElementById('negToggle');
     if (negBtn) negBtn.parentElement.parentElement.style.display = isFlux ? '' : 'none';
     
-    document.getElementById('resolutionSection').style.display = isFlux ? '' : 'none';
+    // Always show aspect ratio buttons, hide custom W×H for MiniMax
+    document.getElementById('customSizeRow').style.display = isFlux ? '' : 'none';
     document.getElementById('settingsSection').style.display = isFlux ? '' : 'none';
     
     // Update empty state subtitle
@@ -437,6 +441,7 @@ function selectSubject(id) {
 }
 
 function setAspect(label, w, h) {
+    currentAspect = label;
     document.getElementById('widthInput').value = w;
     document.getElementById('heightInput').value = h;
     document.querySelectorAll('.aspect-btn').forEach(btn => btn.classList.remove('active'));
@@ -625,7 +630,7 @@ function buildWorkflow() {
         "class_type": "SaveImage",
         "inputs": {
             "images": ["9", 0],
-            "filename_prefix": "ideopic"
+            "filename_prefix": "photoforge"
         }
     };
 
@@ -710,10 +715,8 @@ async function generateMiniMax() {
     document.getElementById('genStatusText').textContent = 'Generating with MiniMax...';
 
     try {
-        // Map current aspect ratio to MiniMax format
-        const w = parseInt(document.getElementById('widthInput').value) || 1024;
-        const h = parseInt(document.getElementById('heightInput').value) || 1024;
-        const aspectRatio = `${w}:${h}`;
+        // Send the standard aspect ratio that MiniMax expects
+        const aspectRatio = currentAspect || "1:1";
 
         const resp = await fetch('/minimax/generate', {
             method: 'POST',
@@ -749,7 +752,7 @@ function displayImageMiniMax(url) {
     img.onload = () => {
         showState('image');
         resetBtn();
-        document.getElementById('genMeta').textContent = `MiniMax | ${document.getElementById('widthInput').value}x${document.getElementById('heightInput').value}`;
+        document.getElementById('genMeta').textContent = `MiniMax | ${currentAspect}`;
     };
     img.onerror = () => {
         showState('empty');
@@ -998,7 +1001,7 @@ function downloadImage() {
     if (!lastImageUrl) return;
     const a = document.createElement('a');
     a.href = lastImageUrl;
-    a.download = `ideopic_${lastSeed}.png`;
+    a.download = `photoforge_${lastSeed}.png`;
     a.click();
 }
 

@@ -1,4 +1,4 @@
-# ideopic — AI Image Generator
+# photoforge — AI Image Generator
 
 Self-hosted web UI for image generation, supporting two backends:
 
@@ -37,8 +37,8 @@ pip install cloudinary
 python3 server.py 8888
 
 # Or as systemd service
-sudo -S -p '' cp ideopic.service /etc/systemd/system/
-sudo -S -p '' systemctl enable --now ideopic
+sudo -S -p '' cp photoforge.service /etc/systemd/system/
+sudo -S -p '' systemctl enable --now photoforge
 ```
 
 ## .env Variables
