@@ -316,7 +316,7 @@ if __name__ == "__main__":
     print(f"photoforge running at http://192.168.1.3:{port}")
     print(f"Proxying /api/* -> {COMFYUI}")
     print(f"MiniMax: {'configured' if MINIMAX_API_KEY else 'NOT configured'}")
-    print(f"Cloudinary uploads -> dol2t3l5x")
+    print(f"Cloudinary: {'configured' if os.environ.get('CLOUDINARY_CLOUD_NAME') else 'NOT configured'}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
